@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #11100e;
+  --foreground: #f7ead7;
+  --muted-text: #b9aa95;
+  --primary-accent: #c96f2d;
+  --secondary-accent: #4e9a92;
+  --border: #312a22;
+  --card-background: #181613;
 }
 
 @theme inline {
@@ -14,8 +19,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #11100e;
+    --foreground: #f7ead7;
   }
 }
 
@@ -23,4 +28,75 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.app-nav-link {
+  color: var(--foreground);
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    color 160ms ease,
+    text-decoration-color 160ms ease;
+  text-decoration-color: transparent;
+}
+
+.app-nav-link:hover {
+  color: var(--primary-accent);
+  text-decoration: underline;
+  text-decoration-color: var(--primary-accent);
+  text-underline-offset: 4px;
+}
+
+.home-card {
+  background: var(--card-background);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--foreground);
+  cursor: pointer;
+  display: block;
+  padding: 24px;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    background-color 160ms ease;
+}
+
+.home-card:hover {
+  background-color: #1f1b16;
+  border-color: var(--primary-accent);
+  transform: scale(1.02);
+}
+
+.app-logo {
+  align-items: center;
+  color: var(--foreground);
+  display: inline-flex;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.app-logo-mark {
+  align-items: center;
+  background:
+    linear-gradient(135deg, var(--primary-accent), #9d4f22 52%, var(--secondary-accent));
+  border: 1px solid #e0a05c;
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px rgba(201, 111, 45, 0.16);
+  color: #160f0a;
+  display: inline-flex;
+  font-weight: 900;
+  height: 34px;
+  justify-content: center;
+  letter-spacing: 0;
+  width: 34px;
+}
+
+.app-logo-text {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.app-logo:hover .app-logo-text {
+  color: var(--primary-accent);
 }
