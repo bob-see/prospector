@@ -3,6 +3,33 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import CopyButton from "./CopyButton";
+import NotesModal from "@/components/NotesModal";
+import { toTitleCaseIfAllCaps } from "@/lib/formatting";
+
+const OWNER_STYLE_RELATIONSHIPS = [
+  "owner",
+  "investment_owner",
+  "appraisal_lead",
+] as const;
+
+const RELATIONSHIP_FILTER_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "owner", label: "Call List" },
+  { value: "investment_owner", label: "Investment Owner" },
+  { value: "appraisal_lead", label: "Appraisal Lead" },
+  { value: "past_owner", label: "Past Owner" },
+  { value: "buyer_enquiry", label: "Buyer Enquiry" },
+  { value: "unknown", label: "Unknown" },
+] as const;
+
+type RelationshipFilterValue =
+  (typeof RELATIONSHIP_FILTER_OPTIONS)[number]["value"];
+
+const RELATIONSHIP_PRIORITY: Record<string, number> = {
+  investment_owner: 0,
+  owner: 1,
+  appraisal_lead: 2,
+};
 
 const detailLabelStyle = {
   color: "#555",
@@ -32,6 +59,7 @@ type SearchResult = {
     displayName: string;
     primaryPhone: string | null;
     primaryEmail: string | null;
+    rawNotes: string | null;
   };
 };
 
@@ -42,6 +70,22 @@ function getSearchTerm(value: string | string[] | undefined) {
 
 function getDisplayMode(value: string | string[] | undefined) {
   return getSearchTerm(value) === "call-list" ? "call-list" : "detailed";
+}
+
+function getRelationshipFilter(value: string | string[] | undefined) {
+  const relationshipType = getSearchTerm(value);
+  const validOptions = new Set<string>(
+    RELATIONSHIP_FILTER_OPTIONS.map((option) => option.value),
+  );
+
+  return validOptions.has(relationshipType)
+    ? (relationshipType as RelationshipFilterValue)
+    : "owner";
+}
+
+function hasExplicitFilter(value: string | string[] | undefined) {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  return typeof rawValue === "string" && rawValue.trim().length > 0;
 }
 
 function buildModeHref(
@@ -94,8 +138,8 @@ function normalizeStreetType(value: string | null) {
 }
 
 function streetHeading(property: SearchResult) {
-  const streetName = normalizeStreetName(property.streetName);
-  const streetType = normalizeStreetType(property.streetType);
+  const streetName = toTitleCaseIfAllCaps(normalizeStreetName(property.streetName));
+  const streetType = toTitleCaseIfAllCaps(normalizeStreetType(property.streetType));
 
   return streetType ? `${streetName} ${streetType}` : streetName;
 }
@@ -164,6 +208,15 @@ function sortResults(results: SearchResult[]) {
       return secondScore - firstScore;
     }
 
+    const firstPriority =
+      RELATIONSHIP_PRIORITY[first.relationshipType || ""] ?? Number.MAX_SAFE_INTEGER;
+    const secondPriority =
+      RELATIONSHIP_PRIORITY[second.relationshipType || ""] ?? Number.MAX_SAFE_INTEGER;
+
+    if (firstPriority !== secondPriority) {
+      return firstPriority - secondPriority;
+    }
+
     return first.contact.displayName.localeCompare(second.contact.displayName);
   });
 }
@@ -172,7 +225,6 @@ function callListLine(property: SearchResult, index: number) {
   const parts = [
     property.contact.displayName,
     property.contact.primaryPhone,
-    property.contact.primaryEmail,
     property.addressRaw,
   ].filter(Boolean);
 
@@ -218,16 +270,67 @@ function allCallListText(streetGroups: Array<[string, SearchResult[]]>) {
     .join("\n\n");
 }
 
+function relationshipLabel(relationshipType: string | null) {
+  switch (relationshipType) {
+    case "investment_owner":
+      return "Investor";
+    case "owner":
+      return "Owner";
+    case "appraisal_lead":
+      return "Appraisal";
+    case "past_owner":
+      return "Past Owner";
+    case "buyer_enquiry":
+      return "Buyer Enquiry";
+    default:
+      return "Unknown";
+  }
+}
+
+function relationshipDisplay(property: SearchResult) {
+  const label = relationshipLabel(property.relationshipType);
+
+  if (property.confidenceScore === null) {
+    return label;
+  }
+
+  return `${label} (${property.confidenceScore.toFixed(2)})`;
+}
+
+function streetSummary(results: SearchResult[]) {
+  const counts = results.reduce(
+    (summary, property) => {
+      if (property.relationshipType === "investment_owner") {
+        summary.investors += 1;
+      } else if (property.relationshipType === "appraisal_lead") {
+        summary.appraisals += 1;
+      } else if (property.relationshipType === "owner") {
+        summary.owners += 1;
+      }
+
+      return summary;
+    },
+    {
+      appraisals: 0,
+      investors: 0,
+      owners: 0,
+    },
+  );
+
+  return `Owners: ${counts.owners} | Investors: ${counts.investors} | Appraisals: ${counts.appraisals}`;
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const params = await searchParams;
   const street = getSearchTerm(params.street);
   const suburb = getSearchTerm(params.suburb);
-  const relationshipType = getSearchTerm(params.relationshipType) || "all";
+  const relationshipType = getRelationshipFilter(params.relationshipType);
   const displayMode = getDisplayMode(params.mode);
+  const hasExplicitRelationshipFilter = hasExplicitFilter(params.relationshipType);
   const hasFilters =
-    street.length > 0 || suburb.length > 0 || relationshipType !== "all";
+    street.length > 0 || suburb.length > 0 || hasExplicitRelationshipFilter;
 
   const filters: Prisma.ContactPropertyWhereInput[] = [];
 
@@ -249,7 +352,13 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     });
   }
 
-  if (relationshipType !== "all") {
+  if (relationshipType === "owner") {
+    filters.push({
+      relationshipType: {
+        in: [...OWNER_STYLE_RELATIONSHIPS],
+      },
+    });
+  } else if (relationshipType !== "all") {
     filters.push({
       relationshipType,
     });
@@ -284,6 +393,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               displayName: true,
               primaryPhone: true,
               primaryEmail: true,
+              rawNotes: true,
             },
           },
         },
@@ -306,7 +416,10 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const modeValues = {
     street,
     suburb,
-    relationshipType,
+    relationshipType:
+      hasExplicitRelationshipFilter || street.length > 0 || suburb.length > 0
+        ? relationshipType
+        : "",
   };
 
   return (
@@ -395,8 +508,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               defaultValue={relationshipType}
               style={{ width: "100%", padding: 8 }}
             >
-              <option value="all">All</option>
-              <option value="owner">Owner</option>
+              {RELATIONSHIP_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -437,7 +553,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               )}
             </div>
             <p style={{ margin: 0 }}>
-              Results are grouped by street and sorted by confidence.
+              Results are grouped by street, ranked by confidence, and tuned
+              for outreach first.
             </p>
           </section>
 
@@ -465,6 +582,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                 <h2 style={{ margin: 0 }}>
                   {streetName} ({results.length})
                 </h2>
+                <p style={{ color: "#666", margin: "6px 0 0" }}>
+                  {streetSummary(results)}
+                </p>
                 <div style={{ display: "flex", gap: 8 }}>
                   <CopyButton
                     text={callListText(streetName, results)}
@@ -480,15 +600,21 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               {displayMode === "call-list" ? (
                 <ol style={{ margin: 0, paddingLeft: 24 }}>
                   {results.map((property) => (
-                    <li key={property.id} style={{ marginBottom: 8 }}>
-                      <strong>{property.contact.displayName}</strong>
-                      {property.contact.primaryPhone
-                        ? ` - ${property.contact.primaryPhone}`
-                        : ""}
-                      {property.contact.primaryEmail
-                        ? ` - ${property.contact.primaryEmail}`
-                        : ""}
-                      {` - ${property.addressRaw}`}
+                    <li key={property.id} style={{ marginBottom: 10 }}>
+                      <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}>
+                        <strong>{property.contact.displayName}</strong>
+                        <span style={{ color: "#666", fontSize: 13 }}>
+                          {relationshipDisplay(property)}
+                        </span>
+                        <NotesModal
+                          displayName={property.contact.displayName}
+                          rawNotes={property.contact.rawNotes}
+                        />
+                      </div>
+                      <div style={{ fontWeight: 600 }}>
+                        {property.contact.primaryPhone || "No phone"}
+                      </div>
+                      <div>{property.addressRaw}</div>
                     </li>
                   ))}
                 </ol>
@@ -513,10 +639,13 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                       </div>
                       <div>
                         <span style={detailLabelStyle}>Relationship:</span>{" "}
-                        {property.relationshipType || "unknown"}
-                        {property.confidenceScore !== null
-                          ? ` | confidence ${property.confidenceScore}`
-                          : ""}
+                        {relationshipDisplay(property)}
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <NotesModal
+                          displayName={property.contact.displayName}
+                          rawNotes={property.contact.rawNotes}
+                        />
                       </div>
                     </li>
                   ))}

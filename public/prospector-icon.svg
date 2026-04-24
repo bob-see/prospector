@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Prospector app icon</title>
+  <desc id="desc">Dark retro square icon with a gradient P mark.</desc>
+  <defs>
+    <linearGradient id="markGradient" x1="104" y1="96" x2="408" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c96f2d" />
+      <stop offset="0.55" stop-color="#9d4f22" />
+      <stop offset="1" stop-color="#4e9a92" />
+    </linearGradient>
+    <linearGradient id="glowGradient" x1="88" y1="76" x2="424" y2="436" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0b978" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#4e9a92" stop-opacity="0.45" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="#11100e" />
+  <rect x="72" y="72" width="368" height="368" rx="88" fill="#181613" />
+  <rect x="72" y="72" width="368" height="368" rx="88" fill="none" stroke="url(#glowGradient)" stroke-width="14" />
+  <rect x="92" y="92" width="328" height="328" rx="72" fill="url(#markGradient)" />
+  <rect x="92" y="92" width="328" height="328" rx="72" fill="none" stroke="#e0a05c" stroke-width="8" />
+  <path
+    fill="#160f0a"
+    d="M190 150h96c62 0 106 39 106 99 0 63-47 103-119 103h-33v62h-50V150Zm50 44v114h39c40 0 63-21 63-57 0-35-23-57-60-57h-42Z"
+  />
+</svg>

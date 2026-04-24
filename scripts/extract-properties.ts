@@ -5,25 +5,55 @@ import { Prisma, PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const CONTACT_BATCH_SIZE = 500;
 const INSERT_BATCH_SIZE = 500;
-const CONFIDENCE_SCORE = 0.8;
 
 const STREET_TYPES =
   "Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Court|Ct|Place|Pl|Crescent|Cres|Lane|Ln|Way|Parade|Pde|Terrace|Tce|Boulevard|Blvd|Circuit|Cir|Close|Cl|Highway|Hwy";
-
-const CONTEXT_ADDRESS_PATTERN = new RegExp(
-  String.raw`\b(?:ALSO\s+OWNS|OWNS|Bought|Did\s+an\s+appraisal\s+on|Sold|OFI|Looked\s+at|Interested\s+in)\b[\s:,-]*(?:[^.\n\r;]*?\b)?(?<address>(?<streetNumber>\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(?<streetName>[A-Za-z][A-Za-z' -]*?)\s+(?<streetType>${STREET_TYPES})\b(?<tail>[^.\n\r;]*))`,
-  "gi",
-);
 
 const ADDRESS_PATTERN = new RegExp(
   String.raw`(?<address>(?<streetNumber>\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(?<streetName>[A-Za-z][A-Za-z' -]*?)\s+(?<streetType>${STREET_TYPES})\b(?<tail>[^.\n\r;]*))`,
   "gi",
 );
 
-const CONTEXT_WORD_PATTERN =
-  /\b(?:ALSO\s+OWNS|OWNS|Bought|Did\s+an\s+appraisal\s+on|Sold|OFI|Looked\s+at|Interested\s+in)\b/i;
+const BUYER_ENQUIRY_PATTERN =
+  /\b(?:OFI|inspected|looked\s+at|interested(?:\s+in)?|enquiry|called\s+about)\b/i;
+const SALE_MARKER_PATTERN =
+  /\b(?:Sale\s+Price|Sale\s+Date|Sale\s+Type)\b/i;
+const APPRAISAL_PATTERN =
+  /\b(?:Did\s+an\s+appraisal\s+on|Appraisal|appraised|valuation)\b/i;
+const APPRAISAL_STRONG_PATTERN =
+  /\b(?:Did\s+an\s+appraisal\s+on|Appraisal|appraised|valuation|valued|listing\s+presentation|presentation|met\s+with\s+owner|meeting\s+with\s+owner|wants?\s*\$|price\s+expectation|prep\s+for\s+sale|coming\s+to\s+market)\b/i;
+const APPRAISAL_SOFT_PATTERN =
+  /\b(?:value|price\s+update|market\s+update|thinking\s+of\s+selling|considering\s+selling)\b/i;
+const INVESTMENT_OWNER_PATTERN = /\b(?:ALSO\s+OWNS|OWNS)\b/i;
+const PURCHASED_OWNER_PATTERN = /\b(?:Bought|Purchased)\b/i;
+const PAST_OWNER_PATTERN = /\b(?:OWNED|SOLD)\b/i;
+
+const RELATIONSHIP_SCORES = {
+  appraisal_lead: 0.82,
+  appraisal_lead_soft: 0.75,
+  buyer_enquiry: 0.45,
+  investment_owner: 0.94,
+  owner: 0.86,
+  owner_purchase: 0.9,
+  past_owner: 0.7,
+  unknown: 0.5,
+} as const;
+
+type RelationshipType =
+  | "appraisal_lead"
+  | "buyer_enquiry"
+  | "investment_owner"
+  | "owner"
+  | "past_owner"
+  | "unknown";
 
 type ContactForExtraction = {
+  homePostcode: string | null;
+  homeStreetName: string | null;
+  homeStreetNumber: string | null;
+  homeStreetRaw: string | null;
+  homeStreetType: string | null;
+  homeSuburb: string | null;
   id: string;
   rawNotes: string | null;
 };
@@ -35,7 +65,7 @@ type ExtractionStats = {
   suburbNullCount: number;
 };
 
-function clean(value: string | undefined) {
+function clean(value: string | null | undefined) {
   const trimmed = (value || "").replace(/\s+/g, " ").trim();
   return trimmed.length > 0 ? trimmed : null;
 }
@@ -140,7 +170,49 @@ function streetComponentKey(
     .toLowerCase();
 }
 
-function noteSegmentHasContext(note: string, index: number) {
+function buildHomeAddressRaw(contact: ContactForExtraction) {
+  const parts = [
+    clean(contact.homeStreetRaw),
+    clean(contact.homeSuburb),
+    clean(contact.homePostcode),
+  ].filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return parts.join(", ");
+}
+
+function homeAddressProperty(contact: ContactForExtraction): ExtractedProperty | null {
+  const homeStreetRaw = clean(contact.homeStreetRaw);
+
+  if (!homeStreetRaw) {
+    return null;
+  }
+
+  const addressRaw = buildHomeAddressRaw(contact);
+
+  if (!addressRaw) {
+    return null;
+  }
+
+  // Future schema support: if ContactProperty gets a source/context field,
+  // mark these rows as `home_address` explicitly.
+  return {
+    contactId: contact.id,
+    addressRaw,
+    streetNumber: clean(contact.homeStreetNumber),
+    streetName: clean(contact.homeStreetName),
+    streetType: clean(contact.homeStreetType),
+    suburb: clean(contact.homeSuburb),
+    postcode: clean(contact.homePostcode),
+    relationshipType: "owner",
+    confidenceScore: 0.98,
+  };
+}
+
+function noteSegmentBounds(note: string, index: number) {
   const segmentStart = Math.max(
     note.lastIndexOf(".", index),
     note.lastIndexOf("\n", index),
@@ -158,13 +230,83 @@ function noteSegmentHasContext(note: string, index: number) {
     segmentEndCandidates.length > 0
       ? Math.min(...segmentEndCandidates)
       : note.length;
-  const segment = note.slice(segmentStart, segmentEnd);
 
-  return CONTEXT_WORD_PATTERN.test(segment);
+  return {
+    start: segmentStart,
+    end: segmentEnd,
+  };
+}
+
+function classifyRelationship(
+  segment: string,
+  prefix: string,
+): {
+  confidenceScore: number;
+  relationshipType: RelationshipType;
+} {
+  if (INVESTMENT_OWNER_PATTERN.test(prefix)) {
+    return {
+      relationshipType: "investment_owner",
+      confidenceScore: RELATIONSHIP_SCORES.investment_owner,
+    };
+  }
+
+  if (PURCHASED_OWNER_PATTERN.test(prefix)) {
+    return {
+      relationshipType: "owner",
+      confidenceScore: RELATIONSHIP_SCORES.owner_purchase,
+    };
+  }
+
+  if (PAST_OWNER_PATTERN.test(prefix)) {
+    return {
+      relationshipType: "past_owner",
+      confidenceScore: RELATIONSHIP_SCORES.past_owner,
+    };
+  }
+
+  if (SALE_MARKER_PATTERN.test(segment)) {
+    return {
+      relationshipType: "owner",
+      confidenceScore: RELATIONSHIP_SCORES.owner,
+    };
+  }
+
+  if (
+    APPRAISAL_PATTERN.test(prefix) ||
+    APPRAISAL_STRONG_PATTERN.test(prefix) ||
+    APPRAISAL_STRONG_PATTERN.test(segment)
+  ) {
+    return {
+      relationshipType: "appraisal_lead",
+      confidenceScore: RELATIONSHIP_SCORES.appraisal_lead,
+    };
+  }
+
+  if (APPRAISAL_SOFT_PATTERN.test(prefix) || APPRAISAL_SOFT_PATTERN.test(segment)) {
+    return {
+      relationshipType: "appraisal_lead",
+      confidenceScore: RELATIONSHIP_SCORES.appraisal_lead_soft,
+    };
+  }
+
+  if (BUYER_ENQUIRY_PATTERN.test(prefix) || BUYER_ENQUIRY_PATTERN.test(segment)) {
+    return {
+      relationshipType: "buyer_enquiry",
+      confidenceScore: RELATIONSHIP_SCORES.buyer_enquiry,
+    };
+  }
+
+  return {
+    relationshipType: "unknown",
+    confidenceScore: RELATIONSHIP_SCORES.unknown,
+  };
 }
 
 function propertyFromMatch(
   contactId: string,
+  note: string,
+  matchIndex: number,
   groups: Record<string, string>,
 ): { property: ExtractedProperty; wasCleaned: boolean } | null {
   const streetNumber = clean(groups.streetNumber);
@@ -184,6 +326,10 @@ function propertyFromMatch(
     suburb,
   );
   const cleanedOriginal = cleanTrailingText(groups.address);
+  const bounds = noteSegmentBounds(note, matchIndex);
+  const segment = note.slice(bounds.start, bounds.end);
+  const prefix = note.slice(bounds.start, matchIndex);
+  const relationship = classifyRelationship(segment, prefix);
 
   return {
     property: {
@@ -193,8 +339,8 @@ function propertyFromMatch(
       streetName,
       streetType,
       suburb,
-      relationshipType: "owner",
-      confidenceScore: CONFIDENCE_SCORE,
+      relationshipType: relationship.relationshipType,
+      confidenceScore: relationship.confidenceScore,
     },
     wasCleaned: cleanedOriginal !== addressRaw,
   };
@@ -222,46 +368,29 @@ function extractProperties(contact: ContactForExtraction): {
     suburbExtractedCount: 0,
     suburbNullCount: 0,
   };
+  const homeProperty = homeAddressProperty(contact);
 
-  for (const match of contact.rawNotes.matchAll(CONTEXT_ADDRESS_PATTERN)) {
-    const groups = match.groups;
-
-    if (!groups) {
-      continue;
-    }
-
-    const result = propertyFromMatch(contact.id, groups);
-
-    if (!result) {
-      continue;
-    }
-
-    const { property, wasCleaned } = result;
-    const key = addressKey(contact.id, property.addressRaw);
-
-    if (seenAddresses.has(key)) {
-      continue;
-    }
-
-    seenAddresses.add(key);
-    stats.cleanedAddressCount += wasCleaned ? 1 : 0;
-    stats.suburbExtractedCount += property.suburb ? 1 : 0;
-    stats.suburbNullCount += property.suburb ? 0 : 1;
-    properties.push(property);
+  if (homeProperty) {
+    const homeKey = addressKey(contact.id, homeProperty.addressRaw);
+    seenAddresses.add(homeKey);
+    stats.suburbExtractedCount += homeProperty.suburb ? 1 : 0;
+    stats.suburbNullCount += homeProperty.suburb ? 0 : 1;
+    properties.push(homeProperty);
   }
 
   for (const match of contact.rawNotes.matchAll(ADDRESS_PATTERN)) {
-    if (!noteSegmentHasContext(contact.rawNotes, match.index)) {
-      continue;
-    }
-
     const groups = match.groups;
 
-    if (!groups) {
+    if (!groups || match.index === undefined) {
       continue;
     }
 
-    const result = propertyFromMatch(contact.id, groups);
+    const result = propertyFromMatch(
+      contact.id,
+      contact.rawNotes,
+      match.index,
+      groups,
+    );
 
     if (!result) {
       continue;
@@ -362,7 +491,7 @@ async function main() {
   };
 
   for (;;) {
-    const contacts: ContactForExtraction[] = await prisma.contact.findMany({
+    const contacts = (await prisma.contact.findMany({
       take: CONTACT_BATCH_SIZE,
       ...(cursor
         ? {
@@ -376,10 +505,16 @@ async function main() {
         id: "asc",
       },
       select: {
+        homePostcode: true,
+        homeStreetName: true,
+        homeStreetNumber: true,
+        homeStreetRaw: true,
+        homeStreetType: true,
+        homeSuburb: true,
         id: true,
         rawNotes: true,
       },
-    });
+    })) as ContactForExtraction[];
 
     if (contacts.length === 0) {
       break;

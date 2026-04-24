@@ -1,15 +1,14 @@
-import { prisma } from "@/lib/prisma";
-import NavBar from "@/components/NavBar";
 import Link from "next/link";
+import NavBar from "@/components/NavBar";
+import { prisma } from "@/lib/prisma";
 import NotesModal from "@/components/NotesModal";
 import { toTitleCaseIfAllCaps } from "@/lib/formatting";
 
 const PAGE_SIZE = 50;
 
-type PropertiesPageProps = {
+type AppraisalsPageProps = {
   searchParams: Promise<{
     page?: string | string[];
-    q?: string | string[];
   }>;
 };
 
@@ -20,94 +19,39 @@ function getPageNumber(value: string | string[] | undefined) {
   return Number.isFinite(page) && page > 0 ? page : 1;
 }
 
-function getSearchTerm(value: string | string[] | undefined) {
-  const rawValue = Array.isArray(value) ? value[0] : value;
-  return (rawValue || "").trim();
-}
-
-function getPageHref(page: number, query: string) {
-  const params = new URLSearchParams();
-  params.set("page", String(page));
-
-  if (query) {
-    params.set("q", query);
-  }
-
-  return `/properties?${params.toString()}`;
+function getPageHref(page: number) {
+  return `/appraisals?page=${page}`;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function PropertiesPage({
+export default async function AppraisalsPage({
   searchParams,
-}: PropertiesPageProps) {
-  const { page, q } = await searchParams;
+}: AppraisalsPageProps) {
+  const { page } = await searchParams;
   const currentPage = getPageNumber(page);
-  const query = getSearchTerm(q);
   const skip = (currentPage - 1) * PAGE_SIZE;
-  const where = query
-    ? {
-        OR: [
-          {
-            addressRaw: {
-              contains: query,
-              mode: "insensitive" as const,
-            },
-          },
-          {
-            streetName: {
-              contains: query,
-              mode: "insensitive" as const,
-            },
-          },
-          {
-            suburb: {
-              contains: query,
-              mode: "insensitive" as const,
-            },
-          },
-          {
-            contact: {
-              displayName: {
-                contains: query,
-                mode: "insensitive" as const,
-              },
-            },
-          },
-          {
-            contact: {
-              primaryPhone: {
-                contains: query,
-                mode: "insensitive" as const,
-              },
-            },
-          },
-          {
-            contact: {
-              primaryEmail: {
-                contains: query,
-                mode: "insensitive" as const,
-              },
-            },
-          },
-        ],
-      }
-    : undefined;
 
-  const properties = await prisma.contactProperty.findMany({
-    where,
-    orderBy: {
-      id: "asc",
+  const appraisals = await prisma.contactProperty.findMany({
+    where: {
+      relationshipType: "appraisal_lead",
     },
+    orderBy: [
+      {
+        confidenceScore: "desc",
+      },
+      {
+        contact: {
+          displayName: "asc",
+        },
+      },
+    ],
     skip,
     take: PAGE_SIZE,
     select: {
       id: true,
       addressRaw: true,
-      streetNumber: true,
-      streetName: true,
       suburb: true,
-      relationshipType: true,
       confidenceScore: true,
       contact: {
         select: {
@@ -119,63 +63,44 @@ export default async function PropertiesPage({
       },
     },
   });
-  const totalProperties = await prisma.contactProperty.count({ where });
+  const totalAppraisals = await prisma.contactProperty.count({
+    where: {
+      relationshipType: "appraisal_lead",
+    },
+  });
 
-  const totalPages = Math.max(1, Math.ceil(totalProperties / PAGE_SIZE));
-  const showingFrom = totalProperties === 0 ? 0 : skip + 1;
-  const showingTo = Math.min(skip + properties.length, totalProperties);
+  const totalPages = Math.max(1, Math.ceil(totalAppraisals / PAGE_SIZE));
+  const showingFrom = totalAppraisals === 0 ? 0 : skip + 1;
+  const showingTo = Math.min(skip + appraisals.length, totalAppraisals);
 
   return (
     <>
       <NavBar />
       <main className="prospector-page-shell">
         <header className="prospector-page-header">
-          <p className="prospector-page-kicker">Prospector Matching</p>
-          <h1 className="prospector-page-title">Properties</h1>
+          <p className="prospector-page-kicker">Prospector Opportunities</p>
+          <h1 className="prospector-page-title">Appraisals</h1>
           <p className="prospector-page-subtitle">
-            Audit extracted properties, search by address or person, and verify
-            the matched contact details behind each record.
+            Review extracted appraisal leads separately from the standard owner
+            prospecting workflow.
           </p>
         </header>
 
         <section className="prospector-table-card">
           <div className="prospector-section-header">
             <div>
-              <h2 className="prospector-section-title">Property Matches</h2>
+              <h2 className="prospector-section-title">Appraisal Leads</h2>
               <p className="prospector-section-subtitle">
-                Showing {showingFrom}-{showingTo} of {totalProperties} properties.
-                Page {currentPage} of {totalPages}.
+                Showing {showingFrom}-{showingTo} of {totalAppraisals} appraisal
+                leads. Page {currentPage} of {totalPages}.
               </p>
             </div>
             <div className="prospector-section-badge">50 per page</div>
           </div>
 
-          <form action="/properties" className="prospector-filter-bar" method="get">
-            <label className="prospector-filter-field">
-              <span className="prospector-filter-label">Search properties</span>
-              <input
-                className="prospector-filter-input"
-                defaultValue={query}
-                name="q"
-                placeholder="Address, suburb, name, phone, or email"
-                type="search"
-              />
-            </label>
-            <div className="prospector-filter-actions">
-              <button className="prospector-filter-button" type="submit">
-                Search
-              </button>
-              {query ? (
-                <Link className="prospector-filter-reset" href="/properties">
-                  Clear
-                </Link>
-              ) : null}
-            </div>
-          </form>
-
           <nav
             className="prospector-pagination"
-            aria-label="Properties pagination top"
+            aria-label="Appraisals pagination top"
           >
             <span className="prospector-pagination-status">
               Page {currentPage} of {totalPages}
@@ -184,7 +109,7 @@ export default async function PropertiesPage({
               {currentPage > 1 ? (
                 <Link
                   className="prospector-pagination-link"
-                  href={getPageHref(currentPage - 1, query)}
+                  href={getPageHref(currentPage - 1)}
                 >
                   Previous
                 </Link>
@@ -196,7 +121,7 @@ export default async function PropertiesPage({
               {currentPage < totalPages ? (
                 <Link
                   className="prospector-pagination-link"
-                  href={getPageHref(currentPage + 1, query)}
+                  href={getPageHref(currentPage + 1)}
                 >
                   Next
                 </Link>
@@ -208,8 +133,8 @@ export default async function PropertiesPage({
             </div>
           </nav>
 
-          {properties.length === 0 ? (
-            <p className="prospector-empty-state">No properties found.</p>
+          {appraisals.length === 0 ? (
+            <p className="prospector-empty-state">No appraisal leads found.</p>
           ) : (
             <div className="prospector-table-shell">
               <table className="prospector-table">
@@ -219,16 +144,13 @@ export default async function PropertiesPage({
                     <th>primaryPhone</th>
                     <th>primaryEmail</th>
                     <th>addressRaw</th>
-                    <th>streetNumber</th>
-                    <th>streetName</th>
                     <th>suburb</th>
-                    <th>relationshipType</th>
                     <th>confidenceScore</th>
                     <th>notes</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {properties.map((property) => (
+                  {appraisals.map((property) => (
                     <tr key={property.id}>
                       <td className="prospector-cell-strong">
                         {property.contact.displayName}
@@ -243,20 +165,9 @@ export default async function PropertiesPage({
                         {property.addressRaw}
                       </td>
                       <td className="prospector-cell-secondary">
-                        {property.streetNumber || ""}
-                      </td>
-                      <td className="prospector-cell-wrap prospector-cell-secondary">
-                        {property.streetName
-                          ? toTitleCaseIfAllCaps(property.streetName)
-                          : ""}
-                      </td>
-                      <td className="prospector-cell-secondary">
                         {property.suburb
                           ? toTitleCaseIfAllCaps(property.suburb)
                           : ""}
-                      </td>
-                      <td className="prospector-cell-secondary">
-                        {property.relationshipType || ""}
                       </td>
                       <td className="prospector-cell-secondary">
                         {property.confidenceScore ?? ""}
@@ -276,7 +187,7 @@ export default async function PropertiesPage({
 
           <nav
             className="prospector-pagination"
-            aria-label="Properties pagination bottom"
+            aria-label="Appraisals pagination bottom"
           >
             <span className="prospector-pagination-status">
               Page {currentPage} of {totalPages}
@@ -285,7 +196,7 @@ export default async function PropertiesPage({
               {currentPage > 1 ? (
                 <Link
                   className="prospector-pagination-link"
-                  href={getPageHref(currentPage - 1, query)}
+                  href={getPageHref(currentPage - 1)}
                 >
                   Previous
                 </Link>
@@ -297,7 +208,7 @@ export default async function PropertiesPage({
               {currentPage < totalPages ? (
                 <Link
                   className="prospector-pagination-link"
-                  href={getPageHref(currentPage + 1, query)}
+                  href={getPageHref(currentPage + 1)}
                 >
                   Next
                 </Link>

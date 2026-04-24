@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "db:counts": "tsx scripts/db-counts.ts",
     "extract-properties": "tsx scripts/extract-properties.ts",
-    "reset-contact-properties": "tsx scripts/reset-contact-properties.ts"
+    "reset-contact-properties": "tsx scripts/reset-contact-properties.ts",
+    "rebuild-contact-properties": "npm run reset-contact-properties && npm run extract-properties"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -15,6 +15,12 @@ model Contact {
   primaryPhone    String?
   primaryEmail    String?
   rawNotes        String?
+  homeStreetRaw   String?
+  homeStreetNumber String?
+  homeStreetName  String?
+  homeStreetType  String?
+  homeSuburb      String?
+  homePostcode    String?
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
