@@ -8,56 +8,90 @@ datasource db {
 }
 
 model Contact {
-  id              String   @id @default(cuid())
-  firstName       String?
-  lastName        String?
-  displayName     String
-  primaryPhone    String?
-  primaryEmail    String?
-  rawNotes        String?
-  homeStreetRaw   String?
+  id               String  @id @default(cuid())
+  firstName        String?
+  lastName         String?
+  displayName      String
+  primaryPhone     String?
+  primaryEmail     String?
+  rawNotes         String?
+  homeStreetRaw    String?
   homeStreetNumber String?
-  homeStreetName  String?
-  homeStreetType  String?
-  homeSuburb      String?
-  homePostcode    String?
+  homeStreetName   String?
+  homeStreetType   String?
+  homeSuburb       String?
+  homePostcode     String?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  properties      ContactProperty[]
+  properties ContactProperty[]
 }
 
 model ContactProperty {
-  id              String   @id @default(cuid())
-  contactId       String
+  id        String @id @default(cuid())
+  contactId String
 
-  addressRaw      String
-  streetNumber    String?
-  streetName      String?
-  streetType      String?
-  suburb          String?
-  postcode        String?
+  addressRaw   String
+  streetNumber String?
+  streetName   String?
+  streetType   String?
+  suburb       String?
+  postcode     String?
 
   relationshipType String? // owner, investor, buyer etc.
   confidenceScore  Float?
 
-  contact         Contact @relation(fields: [contactId], references: [id])
+  contact Contact @relation(fields: [contactId], references: [id])
 }
 
 model MarketListing {
-  id              String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  status          String   // for_sale, sold, under_offer
-  addressRaw      String
+  status     String // for_sale, sold, under_offer
+  addressRaw String
 
-  streetNumber    String?
-  streetName      String?
-  streetType      String?
-  suburb          String?
+  streetNumber String?
+  streetName   String?
+  streetType   String?
+  suburb       String?
 
-  listDate        DateTime?
-  soldDate        DateTime?
+  listDate DateTime?
+  soldDate DateTime?
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  location    String?
+  calendarName String
+  category    String
+  startDate   DateTime
+  endDate     DateTime
+  rawText     String
+  createdAt   DateTime @default(now())
+
+  opportunity Opportunity?
+}
+
+model Opportunity {
+  id               String   @id @default(cuid())
+  calendarEventId  String   @unique
+  contactName      String?
+  eventTitle       String
+  eventDate        DateTime
+  noteDate         DateTime?
+  signalType       String
+  timingSignal     String?
+  opportunityScore Int
+  status           String
+  scoreBreakdown   String?
+  manualOverride   String?
+  summary          String?
+  createdAt        DateTime @default(now())
+
+  calendarEvent CalendarEvent @relation(fields: [calendarEventId], references: [id], onDelete: Cascade)
 }

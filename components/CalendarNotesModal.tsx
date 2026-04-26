@@ -3,15 +3,15 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-type NotesModalProps = {
-  displayName: string;
-  rawNotes: string | null;
+type CalendarNotesModalProps = {
+  title: string;
+  description: string | null;
 };
 
-export default function NotesModal({
-  displayName,
-  rawNotes,
-}: NotesModalProps) {
+export default function CalendarNotesModal({
+  title,
+  description,
+}: CalendarNotesModalProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
@@ -53,9 +53,9 @@ export default function NotesModal({
             >
               <div className="notes-modal-header">
                 <div>
-                  <p className="notes-modal-kicker">Original Contact Notes</p>
+                  <p className="notes-modal-kicker">Calendar Event Notes</p>
                   <h2 className="notes-modal-title" id="notes-modal-title">
-                    {displayName}
+                    {title}
                   </h2>
                 </div>
                 <button
@@ -68,8 +68,8 @@ export default function NotesModal({
               </div>
 
               <div className="notes-modal-body">
-                {rawNotes ? (
-                  <p className="notes-modal-text">{rawNotes}</p>
+                {description ? (
+                  <p className="notes-modal-text">{description}</p>
                 ) : (
                   <p className="notes-modal-empty">No notes recorded.</p>
                 )}

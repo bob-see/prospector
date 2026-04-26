@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "db:counts": "tsx scripts/db-counts.ts",
+    "build:opportunities": "tsx scripts/build-opportunities.ts",
+    "import:calendar": "tsx scripts/import-calendar.ts",
+    "import:calendar:file": "tsx scripts/import-calendar-file.ts",
     "extract-properties": "tsx scripts/extract-properties.ts",
     "reset-contact-properties": "tsx scripts/reset-contact-properties.ts",
     "rebuild-contact-properties": "npm run reset-contact-properties && npm run extract-properties"
@@ -15,6 +18,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "next": "16.2.4",
+    "node-ical": "^0.20.1",
     "openai": "^6.34.0",
     "papaparse": "^5.5.3",
     "prisma": "^6.19.3",

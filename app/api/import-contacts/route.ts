@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import Papa from "papaparse";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 const BATCH_SIZE = 500;
